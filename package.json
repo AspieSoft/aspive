@@ -1,0 +1,25 @@
+{
+  "name": "aspive",
+  "version": "0.0.1-alpha.0",
+  "description": "Another template engine for node.js (currently in alpha version)",
+  "license": "MIT",
+  "author": "AspieSoft",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/aspiesoft/aspive"
+  },
+  "main": "index.js",
+  "keywords": [
+    "nodejs"
+  ],
+  "dependencies": {
+    "lzutf8": "^0.5.5",
+    "math-expression-evaluator": "^1.2.22",
+    "obj-memory-cache": "^0.2.1",
+    "safe-regex": "^2.1.1"
+  },
+  "devDependencies": {
+    "express": "^4.17.1",
+    "miniforge-js": "^0.2.4"
+  }
+}
