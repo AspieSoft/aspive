@@ -1,4 +1,4 @@
 // In God We Trust
 
-const aspive = require('./src/index.min');
+const aspive = require('./main.min');
 module.exports = aspive;

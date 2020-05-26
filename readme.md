@@ -7,7 +7,6 @@
 
 ![npm](https://img.shields.io/npm/dw/aspive)
 ![npm](https://img.shields.io/npm/dm/aspive)
-![GitHub last commit](https://img.shields.io/github/last-commit/aspiesoft/aspive)
 
 [![paypal](https://img.shields.io/badge/buy%20me%20a%20coffee-paypal-blue)](https://buymeacoffee.aspiesoft.com/)
 
