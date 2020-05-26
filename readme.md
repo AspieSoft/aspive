@@ -13,13 +13,13 @@
 
 Another template engine for node.js (currently in alpha version).
 The description will be updated when this module is ready.
-This module is currently in its alpha version, and is published so a backup will be available.
+This module is currently in it's alpha version, and is published so a backup will be available.
 For now, you can check out an older template engine called [regve](https://www.npmjs.com/package/regve) (regex view engine).
 
 ### Installation
 
 ```shell script
-npm install aspive
+npm install @aspiesoft/aspive
 ```
 
 ### Setup
@@ -28,7 +28,7 @@ npm install aspive
 // express
 
 const express = require('express');
-const aspive = require('aspive');
+const aspive = require('@aspiesoft/aspive');
 
 const app = express();
 ```
@@ -37,4 +37,5 @@ const app = express();
 
 ```js
 // package functions
+// this will be updated when the module is updated from it's alpha version
 ```

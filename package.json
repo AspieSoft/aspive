@@ -1,5 +1,5 @@
 {
-  "name": "aspive",
+  "name": "@aspiesoft/aspive",
   "version": "0.0.1-alpha.0",
   "description": "Another template engine for node.js (currently in alpha version)",
   "license": "MIT",
