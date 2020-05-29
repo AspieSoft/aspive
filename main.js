@@ -7,6 +7,8 @@ const mathExp = require('math-expression-evaluator');
 
 const localCache = memoryCache.newCache();
 
+const setTagFunctions = require('./src/tag-functions');
+
 let mainOptions = {};
 let viewsPath = '';
 let viewsType = '';
@@ -15,197 +17,9 @@ const singleTagsList = ['meta', 'link', 'img', 'br', 'hr', 'input'];
 
 const tagFunctions = {};
 
+const tagFunctionMethods = {runMainFunctions, escapeHtml, unescapeHtml, escapeRegex, escapeInvalidTags, stripInvalidTags, normalizeJson, forEach, autoCloseTags, getFileCache, setFileCache, checkIf, getRandomToken, setObject, getObj};
 
-//todo: add initial tag functions on separate page
-
-addTagFunction('echo', ['str', 'allow_html'], function(options, attrs, content, func){
-	if(typeof attrs.str === 'string'){attrs.str = attrs.str.replace(/&#44;/gs, ',').replace(/&#40;/gs, '(').replace(/&#41;/gs, ')');}
-	let result = setObject(attrs.str, options, true);
-	let allow_html = setObject(attrs.allow_html, options);
-	if(['string', 'number', 'boolean'].includes(typeof result)){
-		result = result.toString();
-	}else{result = ''}
-	if(allow_html){return result;}
-	return escapeHtml(result);
-});
-
-addTagFunction('echo_html', ['str'], function(options, attrs, content, func){
-	if(typeof attrs.str === 'string'){attrs.str = attrs.str.replace(/&#44;/gs, ',').replace(/&#40;/gs, '(').replace(/&#41;/gs, ')');}
-	let result = setObject(attrs.str, options, true);
-	if(['string', 'number', 'boolean'].includes(typeof result)){
-		result = result.toString();
-	}else{result = ''}
-	return result;
-});
-
-
-addTagFunction('if', ['logic'], {hasContent: true}, function(options, attrs, content, func){
-	if(!attrs.logic || !content){return false;}
-	function checkTrue(logic){
-		if(logic.startsWith('(') && logic.endsWith(')')){logic = logic.substring(1, logic.length-1);}
-		logic = logic.replace(/^\((.*?)\)$/, '$1').split(/([&|])/g);
-		let isTrue = false; let andOr = false;
-		function runCheck(str){
-			let isNot = false; let loops = 1000;
-			while(str.startsWith('!') && loops-- > 0){
-				isNot = !isNot;
-				str = str.replace('!', '').trim();
-			}
-			let result;
-			if(str.startsWith('(') && str.endsWith(')')){result = checkTrue(str);}
-			else{result = checkIf(str, options);}
-			if(isNot){return !result;}
-			return result;
-		}
-		for(let i = 0; i < logic.length; i++){
-			logic[i] = logic[i].trim();
-			if(!logic[i] || logic[i] === ''){continue;}
-			if(logic[i] === '&' || logic[i] === '|'){
-				andOr = logic[i];
-			}else if(!andOr){
-				isTrue = runCheck(logic[i]);
-			}else if(isTrue && andOr === '&'){
-				isTrue = runCheck(logic[i]);
-			}else if(!isTrue && andOr === '|'){
-				isTrue = runCheck(logic[i]);
-			}else{break;}
-		}
-		return isTrue;
-	}
-	let result = checkTrue(attrs.logic.toString());
-	if(result){
-		return runMainFunctions('<?'+content+'?>', options);
-	}
-	return false;
-});
-
-function checkIf(str, options){
-	function getStrObjs(str){
-		str[0] = setObject(str[0], options);
-		str[1] = setObject(str[1], options);
-		if(typeof str[0] === 'string'){if(str[0].match(/^-?[0-9]+(\.[0-9]+|)$/)){str[0] = Number(str[0]);}else if(str[0] === 'true'){str[0] = true;}else if(str[0] === 'false'){str[0] = false;}}
-		else if(Array.isArray(str[0])){str[0] = str[0].length > 0;}else if(typeof str[0] === 'object'){str[0] = Object.keys(str[0]).length > 0;}
-		if(typeof str[1] === 'string'){if(str[1].match(/^-?[0-9]+(\.[0-9]+|)$/)){str[1] = Number(str[1]);}else if(str[1] === 'true'){str[1] = true;}else if(str[1] === 'false'){str[1] = false;}}
-		else if(Array.isArray(str[1])){str[1] = str[1].length > 0;}else if(typeof str[1] === 'object'){str[1] = Object.keys(str[1]).length > 0;}
-		return str;
-	}
-	if(str.includes('===')){
-		str = getStrObjs(str.split('===', 2));
-		return str[0] === str[1];
-	}else if(str.includes('!==')){
-		str = getStrObjs(str.split('!==', 2));
-		return str[0] !== str[1];
-	}else if(str.includes('==')){
-		str = getStrObjs(str.split('==', 2));
-		return str[0] === str[1];
-	}else if(str.includes('!=')){
-		str = getStrObjs(str.split('!=', 2));
-		return str[0] !== str[1];
-	}else if(str.includes('>=')){
-		str = getStrObjs(str.split('>=', 2));
-		return str[0] >= str[1];
-	}else if(str.includes('<=')){
-		str = getStrObjs(str.split('<=', 2));
-		return str[0] <= str[1];
-	}else if(str.includes('=')){
-		str = getStrObjs(str.split('=', 2));
-		return str[0] === str[1];
-	}else if(str.includes('>')){
-		str = getStrObjs(str.split('>', 2));
-		return str[0] > str[1];
-	}else if(str.includes('<')){
-		str = getStrObjs(str.split('<', 2));
-		return str[0] < str[1];
-	}
-	str = setObject(str, options);
-	if(typeof str === 'string'){if(str.match(/^-?[0-9]+(\.[0-9]+|)$/)){str = Number(str);}else if(str === 'true'){str = true;}else if(str === 'false'){str = false;}}
-	else if(Array.isArray(str)){return str.length > 0;}else if(typeof str === 'object'){return Object.keys(str).length > 0;}
-	return str || str === 0;
-}
-
-
-addTagFunction('each', ['obj', 'as', 'of', 'from'], {hasContent: true}, function(options, attrs, content, func){
-	//todo: set up each loop
-	// include support for & values in obj, as running multiple objects at same time
-	if(!attrs.obj || !content){return;}
-	content = content.toString();
-	let objs = attrs.obj.split('&');
-	let result = '';
-	for(let i = 0; i < objs.length; i++){
-		if(attrs.from){options['$temp'][attrs.from.replace('$', '')] = objs[i].split('.').pop();}
-		let obj = setObject(objs[i], options);
-		forEach(obj, function(value, index){
-			if(attrs.as){options['$temp'][attrs.as.replace('$', '')] = value;}
-			if(attrs.of){options['$temp'][attrs.of.replace('$', '')] = index;}
-			result += runMainFunctions('<? '+content+' ?>', options);
-		});
-	}
-	if(attrs.as){delete options['$temp'][attrs.as.replace('$', '')];}
-	if(attrs.of){delete options['$temp'][attrs.of.replace('$', '')];}
-	if(attrs.from){delete options['$temp'][attrs.from.replace('$', '')];}
-	return result;
-});
-
-
-addTagFunction('import', ['path'], function(options, attrs, content, func){
-	if(!attrs.path){return;}
-	let filePath = attrs.path.toString().trim();
-	if(!filePath.endsWith(viewsType)){filePath += viewsType;}
-	if(!filePath.startsWith(viewsPath)){filePath = path.join(viewsPath, filePath);}
-	else{filePath = path.resolve(filePath);}
-	if(!filePath.startsWith(viewsPath)){return;}
-	let fileData = getFileCache(filePath);
-	if(!fileData && fs.existsSync(filePath)){
-		fileData = fs.readFileSync(filePath).toString();
-		if(!fileData || fileData.trim() === ''){
-			setFileCache(filePath, false, options);
-			return;
-		}
-		setFileCache(filePath, fileData, options);
-	}
-	if(!fileData || fileData.trim() === ''){return;}
-	if(!fileData.startsWith('\n')){fileData = '\n\r'+fileData;}
-	if(!fileData.endsWith('\n')){fileData += '\n\r';}
-	fileData = autoCloseTags(fileData);
-	return runMainFunctions(fileData, options);
-});
-
-
-addTagFunction('setUserVar', ['name', 'value'], function(options, attrs, content, func){
-	if(!attrs.name || !attrs.value){return;}
-	options['$userVars'][setObject(attrs.name, options, true)] = setObject(attrs.value, options, true);
-});
-
-addTagFunction('typeof', ['var', 'literal'], {returnResult: true, noEcho: true}, function(options, attrs, content, func){
-	let result;
-	let value = setObject(attrs.var, options);
-	if(attrs.literal){return typeof value;}
-	if(typeof value === 'string'){try{value = JSON.parse(value);}catch(e){}}
-	if(typeof value === 'string'){
-		if(value === '[object Object]'){result = 'object';}
-		else if(value === '[array Array]'){result = 'array';}
-		else if(value === '[function Function]'){result = 'function';}
-		else if(value.match(/^[0-9]+(\.[0-9]+|)$/)){result = 'number';}
-		else if(value === 'true' || value === 'false'){result = 'boolean';}
-		else if(value === 'undefined'){result = 'undefined';}
-		else if(value === 'null'){result = 'null';}
-		else{result = 'string';}
-	}else if(Array.isArray(value)){
-		result = 'array';
-	}else{result = typeof value;}
-	return '\''+result+'\'';
-});
-
-addTagFunction('log', function(options, attrs, content, func){
-	if(!attrs){return;}
-	let logs = [];
-	forEach(attrs, attr => {
-		let value = setObject(attr, options);
-		logs.push([attr, value]);
-	});
-	console.log(...logs);
-});
-
+setTagFunctions(addTagFunction);
 
 function addTagFunction(name){
 	if(typeof name !== 'string' && typeof name !== 'number' && typeof name !== 'boolean'){return;}
@@ -239,12 +53,8 @@ function addTagFunction(name){
 	return true;
 }
 
-const tagFunctionMethods = {runMainFunctions, escapeHtml, unescapeHtml, escapeRegex, escapeInvalidTags, stripInvalidTags, forEach, autoCloseTags, getFileCache, setFileCache};
 
-
-function getRandomToken(size){
-	return crypto.randomBytes(size).toString('hex');
-}
+function getRandomToken(size){return crypto.randomBytes(size).toString('hex');}
 
 
 function getFileCache(filePath){
@@ -725,8 +535,6 @@ function runFunction(str, options, runElse = false, funcMethods){
 			for(let i = 0; i < attrStr.length; i++){
 				if(!attrObj[i]){attrObj[i] = attrStr[i];}
 			}
-
-			funcMethods.setObject = function(str, returnString){return setObject(str, options, returnString);};
 
 			let funcResult = undefined;
 			if(tagFunctions[funcName].opts.hasContent && content && content.toString().trim() !== ''){
@@ -1231,6 +1039,51 @@ function autoCloseTags(str){
 }
 
 
+function checkIf(str, options){
+	function getStrObjs(str){
+		str[0] = setObject(str[0], options);
+		str[1] = setObject(str[1], options);
+		if(typeof str[0] === 'string'){if(str[0].match(/^-?[0-9]+(\.[0-9]+|)$/)){str[0] = Number(str[0]);}else if(str[0] === 'true'){str[0] = true;}else if(str[0] === 'false'){str[0] = false;}}
+		else if(Array.isArray(str[0])){str[0] = str[0].length > 0;}else if(typeof str[0] === 'object'){str[0] = Object.keys(str[0]).length > 0;}
+		if(typeof str[1] === 'string'){if(str[1].match(/^-?[0-9]+(\.[0-9]+|)$/)){str[1] = Number(str[1]);}else if(str[1] === 'true'){str[1] = true;}else if(str[1] === 'false'){str[1] = false;}}
+		else if(Array.isArray(str[1])){str[1] = str[1].length > 0;}else if(typeof str[1] === 'object'){str[1] = Object.keys(str[1]).length > 0;}
+		return str;
+	}
+	if(str.includes('===')){
+		str = getStrObjs(str.split('===', 2));
+		return str[0] === str[1];
+	}else if(str.includes('!==')){
+		str = getStrObjs(str.split('!==', 2));
+		return str[0] !== str[1];
+	}else if(str.includes('==')){
+		str = getStrObjs(str.split('==', 2));
+		return str[0] === str[1];
+	}else if(str.includes('!=')){
+		str = getStrObjs(str.split('!=', 2));
+		return str[0] !== str[1];
+	}else if(str.includes('>=')){
+		str = getStrObjs(str.split('>=', 2));
+		return str[0] >= str[1];
+	}else if(str.includes('<=')){
+		str = getStrObjs(str.split('<=', 2));
+		return str[0] <= str[1];
+	}else if(str.includes('=')){
+		str = getStrObjs(str.split('=', 2));
+		return str[0] === str[1];
+	}else if(str.includes('>')){
+		str = getStrObjs(str.split('>', 2));
+		return str[0] > str[1];
+	}else if(str.includes('<')){
+		str = getStrObjs(str.split('<', 2));
+		return str[0] < str[1];
+	}
+	str = setObject(str, options);
+	if(typeof str === 'string'){if(str.match(/^-?[0-9]+(\.[0-9]+|)$/)){str = Number(str);}else if(str === 'true'){str = true;}else if(str === 'false'){str = false;}}
+	else if(Array.isArray(str)){return str.length > 0;}else if(typeof str === 'object'){return Object.keys(str).length > 0;}
+	return str || str === 0;
+}
+
+
 function defineSingleTagType(name){
 	if(!name || typeof name !== 'string' || name.trim() === ''){return null;}
 	if(!singleTagsList.includes(name)){singleTagsList.push(name);}
@@ -1316,15 +1169,11 @@ module.exports = (function(){
 	exports.render = render;
 	exports.addFunction = addTagFunction;
 	exports.defineSingleTagType = defineSingleTagType;
-	exports.customMarkdown = customMarkdown;
 	exports.escapeHtml = escapeHtml;
 	exports.unescapeHtml = unescapeHtml;
 	exports.escapeInvalidTags = escapeInvalidTags;
 	exports.stripInvalidTags = stripInvalidTags;
 	exports.escapeRegex = escapeRegex;
 	exports.normalizeJson = normalizeJson;
-	exports.forEach = forEach;
-	exports.getObj = getObj;
-	exports.autoCloseTags = autoCloseTags;
 	return exports;
 })();
