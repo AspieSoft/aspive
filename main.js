@@ -16,33 +16,30 @@ const singleTagsList = ['meta', 'link', 'img', 'br', 'hr', 'input'];
 const tagFunctions = {};
 
 
-/*const log = console.log;
-console.log = function() {
-	log.apply(console, arguments);
-	console.trace();
-};*/
+//todo: add initial tag functions on separate page
 
 addTagFunction('echo', ['str', 'allow_html'], function(options, attrs, content, func){
+	if(typeof attrs.str === 'string'){attrs.str = attrs.str.replace(/&#44;/gs, ',').replace(/&#40;/gs, '(').replace(/&#41;/gs, ')');}
 	let result = setObject(attrs.str, options, true);
 	let allow_html = setObject(attrs.allow_html, options);
 	if(['string', 'number', 'boolean'].includes(typeof result)){
 		result = result.toString();
 	}else{result = ''}
-	if(allow_html){return runMainFunctions(result, options);}
+	if(allow_html){return result;}
 	return escapeHtml(result);
 });
 
-addTagFunction('echo_html', ['str', 'allow_html'], function(options, attrs, content, func){
+addTagFunction('echo_html', ['str'], function(options, attrs, content, func){
+	if(typeof attrs.str === 'string'){attrs.str = attrs.str.replace(/&#44;/gs, ',').replace(/&#40;/gs, '(').replace(/&#41;/gs, ')');}
 	let result = setObject(attrs.str, options, true);
-	let allow_html = setObject(attrs.allow_html, options);
 	if(['string', 'number', 'boolean'].includes(typeof result)){
 		result = result.toString();
 	}else{result = ''}
-	return runMainFunctions(result, options);
+	return result;
 });
 
 
-addTagFunction('if', ['logic'], function(options, attrs, content, func){
+addTagFunction('if', ['logic'], {hasContent: true}, function(options, attrs, content, func){
 	if(!attrs.logic || !content){return false;}
 	function checkTrue(logic){
 		if(logic.startsWith('(') && logic.endsWith(')')){logic = logic.substring(1, logic.length-1);}
@@ -76,9 +73,11 @@ addTagFunction('if', ['logic'], function(options, attrs, content, func){
 		return isTrue;
 	}
 	let result = checkTrue(attrs.logic.toString());
-	if(result){return runMainFunctions('<?'+content+'?>', options);}
+	if(result){
+		return runMainFunctions('<?'+content+'?>', options);
+	}
 	return false;
-}, true);
+});
 
 function checkIf(str, options){
 	function getStrObjs(str){
@@ -125,9 +124,27 @@ function checkIf(str, options){
 }
 
 
-addTagFunction('each', ['obj', 'as', 'of', 'from'], function(options, attrs, content, func){
+addTagFunction('each', ['obj', 'as', 'of', 'from'], {hasContent: true}, function(options, attrs, content, func){
 	//todo: set up each loop
-}, true);
+	// include support for & values in obj, as running multiple objects at same time
+	if(!attrs.obj || !content){return;}
+	content = content.toString();
+	let objs = attrs.obj.split('&');
+	let result = '';
+	for(let i = 0; i < objs.length; i++){
+		if(attrs.from){options['$temp'][attrs.from.replace('$', '')] = objs[i].split('.').pop();}
+		let obj = setObject(objs[i], options);
+		forEach(obj, function(value, index){
+			if(attrs.as){options['$temp'][attrs.as.replace('$', '')] = value;}
+			if(attrs.of){options['$temp'][attrs.of.replace('$', '')] = index;}
+			result += runMainFunctions('<? '+content+' ?>', options);
+		});
+	}
+	if(attrs.as){delete options['$temp'][attrs.as.replace('$', '')];}
+	if(attrs.of){delete options['$temp'][attrs.of.replace('$', '')];}
+	if(attrs.from){delete options['$temp'][attrs.from.replace('$', '')];}
+	return result;
+});
 
 
 addTagFunction('import', ['path'], function(options, attrs, content, func){
@@ -156,12 +173,58 @@ addTagFunction('import', ['path'], function(options, attrs, content, func){
 
 addTagFunction('setUserVar', ['name', 'value'], function(options, attrs, content, func){
 	if(!attrs.name || !attrs.value){return;}
-	options['$userVars'][attrs.name.toString().trim()] = setObject(attrs.value, options);
+	options['$userVars'][setObject(attrs.name, options, true)] = setObject(attrs.value, options, true);
+});
+
+addTagFunction('typeof', ['var', 'literal'], {returnResult: true, noEcho: true}, function(options, attrs, content, func){
+	let result;
+	let value = setObject(attrs.var, options);
+	if(attrs.literal){return typeof value;}
+	if(typeof value === 'string'){try{value = JSON.parse(value);}catch(e){}}
+	if(typeof value === 'string'){
+		if(value === '[object Object]'){result = 'object';}
+		else if(value === '[array Array]'){result = 'array';}
+		else if(value === '[function Function]'){result = 'function';}
+		else if(value.match(/^[0-9]+(\.[0-9]+|)$/)){result = 'number';}
+		else if(value === 'true' || value === 'false'){result = 'boolean';}
+		else if(value === 'undefined'){result = 'undefined';}
+		else if(value === 'null'){result = 'null';}
+		else{result = 'string';}
+	}else if(Array.isArray(value)){
+		result = 'array';
+	}else{result = typeof value;}
+	return '\''+result+'\'';
+});
+
+addTagFunction('log', function(options, attrs, content, func){
+	if(!attrs){return;}
+	let logs = [];
+	forEach(attrs, attr => {
+		let value = setObject(attr, options);
+		logs.push([attr, value]);
+	});
+	console.log(...logs);
 });
 
 
-function addTagFunction(name, attrs, callback, hasContent = false){
+function addTagFunction(name){
 	if(typeof name !== 'string' && typeof name !== 'number' && typeof name !== 'boolean'){return;}
+	let defaultOpts = {hasContent: false, returnResult: false};
+	let attrs, opts, callback;
+	if(typeof arguments[3] === 'function'){
+		attrs = arguments[1];
+		opts = arguments[2];
+		callback = arguments[3];
+	}else if(typeof arguments[2] === 'function'){
+		if(typeof arguments[1] === 'object' && !Array.isArray(arguments[1])){
+			opts = arguments[1];
+		}else{attrs = arguments[1];}
+		callback = arguments[2];
+	}else if(typeof arguments[1] === 'function'){callback = arguments[1];}
+	if(!opts){opts = defaultOpts;}
+	else{opts = {...defaultOpts, ...opts};}
+	if(!attrs){attrs = [];}
+	else if(!Array.isArray(attrs)){attrs = [attrs];}
 	name = name.toString().trim();
 	if(typeof attrs === 'function'){
 		if(callback){
@@ -170,10 +233,9 @@ function addTagFunction(name, attrs, callback, hasContent = false){
 			attrs = attr;
 		}else{callback = attrs;}
 	}
-	hasContent = !!hasContent;
 	if(!Array.isArray(attrs)){attrs = [attrs];}
 	attrs = attrs.map(attr => attr.toString().trim());
-	tagFunctions[name] = {attrs, callback, hasContent};
+	tagFunctions[name] = {attrs, callback, opts};
 	return true;
 }
 
@@ -241,7 +303,13 @@ function engine(filePath, options, callback){
 }
 
 
-function render(str, options){
+function render(str, options = {}){
+
+	let renderStartTime = false;
+
+	if(mainOptions.logSpeed){
+		renderStartTime = new Date().getTime();
+	}
 
 	str = str.toString();
 
@@ -261,8 +329,10 @@ function render(str, options){
 	if(!options.opts || typeof options.opts !== 'object'){options.opts = {};}
 	if(!options['$'] || typeof options['$'] !== 'object'){options['$'] = {};}
 	if(!options['$functions'] || typeof options['$functions'] !== 'object'){options['$functions'] = {};}
+	if(!options['$temp'] || typeof options['$temp'] !== 'object'){options['$temp'] = {};}
 	if(!options['$userVars'] || typeof options['$userVars'] !== 'object'){options['$userVars'] = {};}
 	if(!options['$returns'] || typeof options['$returns'] !== 'object'){options['$returns'] = {};}
+	if(!options['$strings'] || typeof options['$strings'] !== 'object'){options['$strings'] = {};}
 	if(!options.extractTags){options.extractTags = [];}
 	else if(!Array.isArray(options.extractTags)){options.extractTags = [options.extractTags];}
 	if(mainOptions.extractTags){
@@ -298,9 +368,20 @@ function render(str, options){
 	// may find way to scan globally (reading files with fs)
 	// may make cli module
 
-
 	// add template file
 	str = getTemplate(str, options);
+
+	// escape html in {{#no-html}} tags
+	str = str.split(/({{{?#no[_-]?html}}}?.*?{{{?\/no[_-]?html}}}?)/gsi);
+	for(let i = 0; i < str.length; i++){
+		if(str[i].match(/({{{?#no[_-]?html}}}?.*?{{{?\/no[_-]?html}}}?)/gsi)){
+			str[i] = escapeHtml(str[i].replace(/{{{?#no[_-]?html}}}?(.*?){{{?\/no[_-]?html}}}?/gsi, '$1'));
+		}else{
+			// run user vars outside {{#no-html}} tags
+			str[i] = runUserVars(str[i], options);
+		}
+	}
+	str = str.join('');
 
 	//todo: add lazyload support (make sure this is triggered early)
 
@@ -318,10 +399,10 @@ function render(str, options){
 	str = extractTags(str, options);
 
 	// escape html in {{#no-html}} tags
-	str = str.split(/({{{?#no[_-]html}}}?.*?{{{?\/no[_-]html}}}?)/gsi);
+	str = str.split(/({{{?#no[_-]?html}}}?.*?{{{?\/no[_-]?html}}}?)/gsi);
 	for(let i = 0; i < str.length; i++){
-		if(str[i].match(/({{{?#no[_-]html}}}?.*?{{{?\/no[_-]html}}}?)/gsi)){
-			str[i] = escapeHtml(str[i].replace(/{{{?#no[_-]html}}}?(.*?){{{?\/no[_-]html}}}?/gsi, '$1'));
+		if(str[i].match(/({{{?#no[_-]?html}}}?.*?{{{?\/no[_-]?html}}}?)/gsi)){
+			str[i] = escapeHtml(str[i].replace(/{{{?#no[_-]?html}}}?(.*?){{{?\/no[_-]?html}}}?/gsi, '$1'));
 		}else{
 			// run user vars outside {{#no-html}} tags
 			str[i] = runUserVars(str[i], options);
@@ -331,12 +412,12 @@ function render(str, options){
 
 	// run custom markdown outside {{#no-markdown}} tags
 	if(!mainOptions.noMarkdown && !options.noMarkdown){
-		str = str.split(/({{{?#no[_-]markdown}}}?.*?{{{?\/no[_-]markdown}}}?)/gsi);
+		str = str.split(/({{{?#no[_-]?markdown}}}?.*?{{{?\/no[_-]?markdown}}}?)/gsi);
 		for(let i = 0; i < str.length; i++){
-			if(!str[i].match(/({{{?#no[_-]markdown}}}?.*?{{{?\/no[_-]markdown}}}?)/gsi)){
+			if(!str[i].match(/({{{?#no[_-]?markdown}}}?.*?{{{?\/no[_-]?markdown}}}?)/gsi)){
 				str[i] = customMarkdown(str[i], options);
 			}else{
-				str[i] = str[i].replace(/{{{?#no[_-]markdown}}}?(.*?){{{?\/no[_-]markdown}}}?/gsi, '$1');
+				str[i] = str[i].replace(/{{{?#no[_-]?markdown}}}?(.*?){{{?\/no[_-]?markdown}}}?/gsi, '$1');
 			}
 		}
 		str = str.join('');
@@ -350,7 +431,15 @@ function render(str, options){
 	str = str.replace(/{{{?.*?}}}?/gs, '');
 
 	//todo: minify html output
-	return str.toString().trim();
+	str = str.toString().trim();
+
+
+	if(mainOptions.logSpeed && renderStartTime){
+		let renderSpeed = (new Date().getTime()) - renderStartTime;
+		console.log('\x1b[34mAspive rendered in\x1b[32m', renderSpeed, '\x1b[34mmilliseconds\x1b[0m');
+	}
+
+	return str;
 }
 
 
@@ -413,6 +502,15 @@ function runMainFunctions(str, options){
 		funcMethods.result = function(str){result += setResult(str);};
 		funcMethods.setResult = setResult;
 
+		function echo_html(str){result += str.toString();}
+
+		content = content.replace(/\\'/gs, '&#39;').replace(/\\"/gs, '&#34;')
+		.replace(/(['"])(.*?)\1/gs, function(str, quote, content){
+			let index = getRandomToken(16)+getRandomToken(16);
+			options['$strings'][index] = quote+content.replace(/&#39;/gs, '\\\'').replace(/&#34;/gs, '\\"')+quote;
+			return '<&string%'+index+'%&>';
+		});
+
 		content = content.replace(/[\n\r\t\s]/gs, ' ').replace(/\s\s/gs, ' ')
 		.replace(/else\s*?{/gs, 'else if(true){');
 
@@ -441,6 +539,7 @@ function runMainFunctions(str, options){
 					}return '{}';
 				});
 			}
+			//todo: allow setObject to run functions
 			options['$functions'][funcName] = function(options, attrs){
 				const funcContent = content;
 				const attrList = attrStr;
@@ -458,8 +557,6 @@ function runMainFunctions(str, options){
 				let funcReturn = false;
 				funcResult = funcResult.replace(/<&return%(.*?)%&>.*?/gs, function(str, index){
 					if(!funcReturn){
-						//todo: add return function to set options['$return'] to a random index, and echo the index
-						// regex uses <&return%(.*?)%&>
 						funcReturn = options['$returns'][index];
 					}return '';
 				});
@@ -490,13 +587,23 @@ function runMainFunctions(str, options){
 
 		for(let i = 0; i < content.length; i++){
 			content[i] = content[i].trim();
+
+			if(content[i].startsWith('return ')){
+				let index = getRandomToken(16)+getRandomToken(16);
+				options['$returns'][index] = content[i].replace('return ', '').replace(/;$/, '');
+				result += '<&return%'+index+'%&>';
+				break;
+			}
+
 			if(content[i].startsWith('echo_html ')){
-				result += runMainFunctions(setResult(setObject(content[i].replace(/^echo_html\s*/, ''), options, true)), options);
+				content[i] = 'echo('+content[i].replace(/^echo_html\s*/, '').replace(/;$/, '').replace(/,/gs, '&#44;').replace(/\(/gs, '&#40;').replace(/\)/gs, '&#41;')+', true);';
 			}else if(content[i].startsWith('echo ')){
-				result += escapeHtml(setResult(setObject(content[i].replace(/^echo\s*/, ''), options, true)));
-			}else if(content[i].match(/^\$[\w_\-.\[\]]+\s*?[+\-*\/.]?=\s*?.*?/)){
+				content[i] = 'echo('+content[i].replace(/^echo\s*/, '').replace(/;$/, '').replace(/,/gs, '&#44;').replace(/\(/gs, '&#40;').replace(/\)/gs, '&#41;')+');';
+			}
+
+			if(content[i].match(/^\$[\w_\-.\[\]]+\s*?[+\-*\/.]?=\s*?.*?/)){
 				content[i].replace(/^\$([\w_\-.\[\]]+)\s*?([+\-*\/.]|)=\s*?(.*?)[;}]/, function(str, varName, operation, value){
-					value = setObject(value, options, false, {funcOpts, funcMethods});
+					value = setObject(value, options, false, {funcOpts, funcMethods}, echo_html);
 					if(!operation || operation.trim() === ''){
 						//todo: handle setting object level vars
 						options['$'][varName] = value;
@@ -575,9 +682,6 @@ function runMainFunctions(str, options){
 				if(funcResult.result){
 					result += funcResult.result.toString();
 				}
-				if(funcResult.return && ['string', 'number', 'boolean'].includes(typeof funcResult.return)){
-					result += funcResult.return.toString();
-				}
 
 			}
 		}
@@ -597,14 +701,20 @@ function runFunction(str, options, runElse = false, funcMethods){
 		if(!attrStr){attrStr = '';}
 		else{attrStr = attrStr.toString();}
 
+		attrStr = attrStr.split(',').map(attr => {
+			attr = attr.replace(/<&string%(.*?)%&>/gs, function(str, index){
+				if(options['$strings'][index]){
+					return options['$strings'][index];
+				}return '';
+			});
+			return attr.trim();
+		}).filter(attr => attr && attr !== '');
+
 		if(options['$functions'][funcName]){
-			attrStr = attrStr.split(',').map(attr => attr.trim()).filter(attr => attr && attr !== '');
 			let funcResult = options['$functions'][funcName](options, attrStr);
 			if(funcResult.result){result += funcResult.result.toString();}
 			if(funcResult.return){returnResult = funcResult.return;}
 		}else if(tagFunctions[funcName]){
-			attrStr = attrStr.split(',').map(attr => attr.trim()).filter(attr => attr && attr !== '');
-
 			let attrObj = {};
 			if(tagFunctions[funcName].attrs){
 				let attrValues = tagFunctions[funcName].attrs;
@@ -619,7 +729,7 @@ function runFunction(str, options, runElse = false, funcMethods){
 			funcMethods.setObject = function(str, returnString){return setObject(str, options, returnString);};
 
 			let funcResult = undefined;
-			if(tagFunctions[funcName].hasContent && content && content.toString().trim() !== ''){
+			if(tagFunctions[funcName].opts.hasContent && content && content.toString().trim() !== ''){
 				funcResult = tagFunctions[funcName].callback(options, attrObj, content.toString(), funcMethods);
 			}else if(tagFunctions[funcName]){
 				funcResult = tagFunctions[funcName].callback(options, attrObj, null, funcMethods);
@@ -628,14 +738,71 @@ function runFunction(str, options, runElse = false, funcMethods){
 			if(funcResult === false){
 				runElse = true;
 				returnResult = false;
-			}else{returnResult = funcResult;}
+			}else if(funcResult){
+				funcResult = funcResult.replace(/<&return%(.*?)%&>.*?/gs, function(str, index){
+					if(!returnResult){
+						returnResult = options['$returns'][index];
+					}return '';
+				});
+				result += funcResult.toString();
+			}
+
+			if(tagFunctions[funcName].opts.returnResult){returnResult = funcResult;}
+			if(tagFunctions[funcName].opts.noEcho){result = '';}
+
 		}
 	});
 	return {result, return: returnResult, runElse}
 }
 
 
-function setObject(str, options, returnString = false, funcData = false){
+function setObject(str, options, returnString = false, funcData = false, echo_html = false){
+	if(!str || !['string', 'number', 'boolean'].includes(typeof str)){return;}
+	str = str.toString().trim();
+	if(str.endsWith(';')){str = str.substring(0, str.length-1);}
+
+	if(str.match(/<&string%.*?%&>/)){
+		str = str.replace(/<&string%(.*?)%&>/gs, function(str, index){
+			if(options['$strings'][index]){
+				return options['$strings'][index];
+			}return '';
+		});
+	}
+
+	let rString = false;
+	if(returnString === 'regve'){rString = 'regve';}
+
+	str = str.split('|');
+	let result = undefined;
+	for(let i = 0; i < str.length; i++){
+		if(str[i].includes('&')){
+			let check = str[i].split('&');
+			let isTrue = false;
+			for(let c = 0; c < check.length; c++){
+				isTrue = !!setObjectItem(check[c], options, rString, funcData);
+				if(!isTrue){break;}
+			}
+			if(isTrue){
+				result = true;
+				break;
+			}
+		}else{
+			result = setObjectItem(str[i], options, rString, funcData);
+			if(result){
+				result = setObjectItem(str[i], options, returnString, funcData, echo_html);
+				break;
+			}
+		}
+	}
+	if(returnString){
+		if(!['string', 'number', 'boolean'].includes(typeof result)){result = '';}
+		return result.toString();
+	}
+	return result;
+}
+
+
+function setObjectItem(str, options, returnString = false, funcData = false, echo_html = false){
 	if(!str || !['string', 'number', 'boolean'].includes(typeof str)){return;}
 	str = str.toString().trim();
 
@@ -646,31 +813,54 @@ function setObject(str, options, returnString = false, funcData = false){
 		isRegve = true;
 	}
 
-
-	let hasFunctions = false;
 	if(!isRegve && funcData && typeof str === 'string' && str.match(/([\w_\-$]+)\((.*?)\)/)){
-		hasFunctions = true;
-		//todo: handle functions (use runFunction())
-		// remember to work with string combined functions, and returned values
-		// remember to add fix for inner function selection
-		// may run functions early if possible
+		function setResult(str){
+			if(['string', 'number', 'boolean'].includes(typeof str)){
+				return str.toString();
+			}return '';
+		}
+
+		const funcMethods = {...tagFunctionMethods};
+		funcMethods.result = function(str){result += str;};
+		funcMethods.setResult = setResult;
+
+		str = str.split(/([\w_\-$]+\(.*?\))/);
+		for(let i = 0; i < str.length; i++){
+			if(str[i].match(/^([\w_\-$]+)\((.*?)\)$/)){
+				let funcResult = runFunction(str[i], options, false, funcMethods);
+				if(funcResult.result && echo_html){
+					echo_html(funcResult.result);
+				}
+				if(funcResult.return){
+					str[i] = funcResult.return;
+				}
+			}
+		}
+		str = str.join('');
 	}
 
 
+	let removeEndBracket = false;
+	if(str.startsWith('{') && !str.endsWith('}')){str += '}'; removeEndBracket = true;}
 	if((str.startsWith('{') && str.endsWith('}')) || (str.startsWith('[') && str.endsWith(']'))){
 		try{
 			let result = JSON.parse(normalizeJson(str));
-			if(returnString){return JSON.stringify(result);}
+			if(returnString){
+				result = JSON.stringify(result);
+				if(removeEndBracket){result = result.replace(/}$/, '');}
+			}
 			return result;
 		}catch(e){}
 	}
+	if(removeEndBracket){str = str.replace(/}$/, '');}
 
 	const stringObjs = {};
-	str = str.replace(/(['"])(.*?)\1/gs, function(str, quote, string){
+	str = str.replace(/\\'/gs, '&#39;').replace(/\\"/gs, '&#34;')
+	.replace(/(['"])(.*?)\1/gs, function(str, quote, string){
 		let index = getRandomToken(16)+getRandomToken(16);
-		stringObjs[index] = string;
+		stringObjs[index] = string.replace(/&#39;/gs, '\'').replace(/&#34;/gs, '"');
 		return quote+'<&%'+index+'%&>'+quote;
-	});
+	}).replace(/&#39;/gs, '\\\'').replace(/&#34;/gs, '\\"');
 
 	str = str.split(/((?:[0-9+\-*/^().e!]|pi|sin|cos|tan|asin|acos|atan|root|pow)+)/gs);
 	for(let i = 0; i < str.length; i++){
@@ -690,7 +880,11 @@ function setObject(str, options, returnString = false, funcData = false){
 	let result = ''; let sign = '.';
 
 	function addResult(str){
-		if(typeof str === 'undefined'){return '';}
+		if(!returnString){
+			result = str;
+			return;
+		}
+		if(typeof str === 'undefined'){return;}
 		if(sign === '.' || sign === '+'){
 			result += str.toString();
 		}else if(sign === '-'){
@@ -770,12 +964,14 @@ function setObject(str, options, returnString = false, funcData = false){
 		}else if(str.startsWith('$Data.') || str.startsWith('$_DATA.')){
 			result = getObj('req.data.'+str.replace(/^\$_?data(\.|\[(.*?|)\])/i, regexGetObjPath), options);
 		}else if(str.startsWith('$')){
-			result = getObj(str.replace('$', ''), options['$']);
+			result = getObj(str.replace('$', ''), options['$temp']);
+			if(!result){result = getObj(str.replace('$', ''), options['$']);}
 		}else{result = getObj(str, options['$']);}
 		if(returnString){
 			if((!result && result !== 0) || !['string', 'number', 'boolean'].includes(typeof result)){result = undefined;}
 			else{result = result.toString();}
-		}return result;
+		}
+		return result;
 	}
 
 	function regexGetObjPath(str, value){
@@ -795,7 +991,11 @@ function setObject(str, options, returnString = false, funcData = false){
 		result = Number(result);
 	}else if(result === 'true'){
 		result = true;
-	}else if(result === 'false'){result = false;}
+	}else if(result === 'false'){
+		result = false;
+	}else if(result === 'null'){
+		result = null;
+	}else if(result === 'undefined'){result = undefined;}
 
 	return result;
 }
