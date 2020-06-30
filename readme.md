@@ -8,7 +8,7 @@
 ![npm](https://img.shields.io/npm/dw/aspive)
 ![npm](https://img.shields.io/npm/dm/aspive)
 
-[![paypal](https://img.shields.io/badge/buy%20me%20a%20coffee-paypal-blue)](https://buymeacoffee.aspiesoft.com/)
+[![paypal](https://img.shields.io/badge/buy%20me%20a%20coffee-paypal-blue)](https://buymeacoffee.aspiesoft.com/from-npm/aspive)
 
 Another template engine for node.js (currently in alpha version).
 The description will be updated when this module is ready.
